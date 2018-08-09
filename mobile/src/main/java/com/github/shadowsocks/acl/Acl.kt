@@ -21,8 +21,9 @@
 package com.github.shadowsocks.acl
 
 import android.content.Context
-import android.support.v7.util.SortedList
 import android.util.Log
+import androidx.recyclerview.widget.SortedList
+import com.crashlytics.android.Crashlytics
 import com.github.shadowsocks.App.Companion.app
 import com.github.shadowsocks.preference.DataStore
 import com.github.shadowsocks.utils.Subnet
@@ -45,25 +46,22 @@ class Acl {
 
         val networkAclParser = "^IMPORT_URL\\s*<(.+)>\\s*$".toRegex()
 
-        fun getFile(id: String, context: Context = app.deviceContext) = File(context.filesDir, id + ".acl")
+        fun getFile(id: String, context: Context = app.deviceStorage) = File(context.filesDir, "$id.acl")
 
         var customRules: Acl
             get() {
                 val acl = Acl()
                 val str = DataStore.publicStore.getString(CUSTOM_RULES)
-                if (str != null) {
-                    acl.fromReader(str.reader())
-                    if (!acl.bypass) {
-                        acl.subnets.clear()
-                        acl.hostnames.clear()
-                        acl.bypass = true
-                    }
-                } else acl.bypass = true
+                if (str != null) acl.fromReader(str.reader(), true)
+                if (!acl.bypass) {
+                    acl.bypass = true
+                    acl.subnets.clear()
+                }
                 return acl
             }
-            set(value) = DataStore.publicStore.putString(CUSTOM_RULES, if ((!value.bypass ||
-                    value.subnets.size() == 0 && value.hostnames.size() == 0) && value.urls.size() == 0)
-                null else value.toString())
+            set(value) = DataStore.publicStore.putString(CUSTOM_RULES,
+                    if ((!value.bypass || value.subnets.size() == 0) && value.bypassHostnames.size() == 0 &&
+                            value.proxyHostnames.size() == 0 && value.urls.size() == 0) null else value.toString())
         fun save(id: String, acl: Acl) = getFile(id).writeText(acl.toString())
     }
 
@@ -88,31 +86,30 @@ class Acl {
         override fun compareNonNull(o1: URL, o2: URL): Int = ordering.compare(o1, o2)
     }
 
-    val hostnames = SortedList(String::class.java, StringSorter)
+    val bypassHostnames = SortedList(String::class.java, StringSorter)
+    val proxyHostnames = SortedList(String::class.java, StringSorter)
     val subnets = SortedList(Subnet::class.java, SubnetSorter)
     val urls = SortedList(URL::class.java, URLSorter)
     var bypass = false
 
-    fun clear(): Acl {
-        hostnames.clear()
-        subnets.clear()
-        urls.clear()
-        return this
-    }
-
     fun fromAcl(other: Acl): Acl {
-        clear()
-        for (item in other.hostnames.asIterable()) hostnames.add(item)
+        bypassHostnames.clear()
+        for (item in other.bypassHostnames.asIterable()) bypassHostnames.add(item)
+        proxyHostnames.clear()
+        for (item in other.proxyHostnames.asIterable()) proxyHostnames.add(item)
+        subnets.clear()
         for (item in other.subnets.asIterable()) subnets.add(item)
+        urls.clear()
         for (item in other.urls.asIterable()) urls.add(item)
         bypass = other.bypass
         return this
     }
     fun fromReader(reader: Reader, defaultBypass: Boolean = false): Acl {
-        clear()
+        bypassHostnames.clear()
+        proxyHostnames.clear()
+        subnets.clear()
+        urls.clear()
         bypass = defaultBypass
-        val proxyHostnames by lazy { SortedList(String::class.java, StringSorter) }
-        val bypassHostnames by lazy { SortedList(String::class.java, StringSorter) }
         val bypassSubnets by lazy { SortedList(Subnet::class.java, SubnetSorter) }
         val proxySubnets by lazy { SortedList(Subnet::class.java, SubnetSorter) }
         var hostnames: SortedList<String>? = if (defaultBypass) proxyHostnames else bypassHostnames
@@ -121,7 +118,7 @@ class Acl {
             for (line in it) {
                 @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN")
                 val blocks = (line as java.lang.String).split("#", 2)
-                val url = networkAclParser.matchEntire(blocks.getOrElse(1, {""}))?.groupValues?.getOrNull(1)
+                val url = networkAclParser.matchEntire(blocks.getOrElse(1) { "" })?.groupValues?.getOrNull(1)
                 if (url != null) urls.add(URL(url))
                 val input = blocks[0].trim()
                 when (input) {
@@ -146,7 +143,6 @@ class Acl {
                 }
             }
         }
-        for (item in (if (bypass) proxyHostnames else bypassHostnames).asIterable()) this.hostnames.add(item)
         for (item in (if (bypass) proxySubnets else bypassSubnets).asIterable()) this.subnets.add(item)
         return this
     }
@@ -160,18 +156,18 @@ class Acl {
             val child = Acl()
             try {
                 child.fromReader(url.openStream().bufferedReader(), bypass).flatten(depth - 1)
-            } catch (_: IOException) {
+            } catch (e: IOException) {
+                e.printStackTrace()
                 continue
             }
             if (bypass != child.bypass) {
-                Log.w(TAG, "Imported network ACL has a conflicting mode set. " +
+                Crashlytics.log(Log.WARN, TAG, "Imported network ACL has a conflicting mode set. " +
                         "This will probably not work as intended. URL: $url")
-                // rules for the different mode are discarded
-                child.hostnames.clear()
-                child.subnets.clear()
+                child.subnets.clear() // subnets for the different mode are discarded
                 child.bypass = bypass
             }
-            for (item in child.hostnames.asIterable()) hostnames.add(item)
+            for (item in child.bypassHostnames.asIterable()) bypassHostnames.add(item)
+            for (item in child.proxyHostnames.asIterable()) proxyHostnames.add(item)
             for (item in child.subnets.asIterable()) subnets.add(item)
         }
         urls.clear()
@@ -180,11 +176,21 @@ class Acl {
 
     override fun toString(): String {
         val result = StringBuilder()
-        result.append(if (bypass) "[bypass_all]\n[proxy_list]\n" else "[proxy_all]\n[bypass_list]\n")
-        result.append(subnets.asIterable().joinToString("\n"))
-        result.append('\n')
-        result.append(hostnames.asIterable().joinToString("\n"))
-        result.append('\n')
+        result.append(if (bypass) "[bypass_all]\n" else "[proxy_all]\n")
+        val bypassList = (if (bypass) bypassHostnames.asIterable().asSequence() else
+            subnets.asIterable().asSequence().map(Subnet::toString) + proxyHostnames.asIterable().asSequence()).toList()
+        val proxyList = (if (bypass) subnets.asIterable().asSequence().map(Subnet::toString) +
+                proxyHostnames.asIterable().asSequence() else bypassHostnames.asIterable().asSequence()).toList()
+        if (bypassList.isNotEmpty()) {
+            result.append("[bypass_list]\n")
+            result.append(bypassList.joinToString("\n"))
+            result.append('\n')
+        }
+        if (proxyList.isNotEmpty()) {
+            result.append("[proxy_list]\n")
+            result.append(proxyList.joinToString("\n"))
+            result.append('\n')
+        }
         result.append(urls.asIterable().joinToString("") { "#IMPORT_URL <$it>\n" })
         return result.toString()
     }

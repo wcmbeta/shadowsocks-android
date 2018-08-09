@@ -21,11 +21,10 @@
 package com.github.shadowsocks.database
 
 import android.database.sqlite.SQLiteCantOpenDatabaseException
-import android.util.Log
-import com.github.shadowsocks.App.Companion.app
 import com.github.shadowsocks.ProfilesFragment
 import com.github.shadowsocks.preference.DataStore
 import com.github.shadowsocks.utils.DirectBoot
+import com.github.shadowsocks.utils.printLog
 import java.io.IOException
 import java.sql.SQLException
 
@@ -34,22 +33,9 @@ import java.sql.SQLException
  * to ensure we are in a consistent state.
  */
 object ProfileManager {
-    private const val TAG = "ProfileManager"
-
     @Throws(SQLException::class)
-    fun createProfile(p: Profile? = null): Profile {
-        val profile = p ?: Profile()
+    fun createProfile(profile: Profile = Profile()): Profile {
         profile.id = 0
-        val oldProfile = app.currentProfile
-        if (oldProfile != null) {
-            // Copy Feature Settings from old profile
-            profile.route = oldProfile.route
-            profile.ipv6 = oldProfile.ipv6
-            profile.proxyApps = oldProfile.proxyApps
-            profile.bypass = oldProfile.bypass
-            profile.individual = oldProfile.individual
-            profile.udpdns = oldProfile.udpdns
-        }
         profile.userOrder = PrivateDatabase.profileDao.nextOrder() ?: 0
         profile.id = PrivateDatabase.profileDao.create(profile)
         ProfilesFragment.instance?.profilesAdapter?.add(profile)
@@ -65,10 +51,10 @@ object ProfileManager {
     @Throws(IOException::class)
     fun getProfile(id: Long): Profile? = try {
         PrivateDatabase.profileDao[id]
+    } catch (ex: SQLiteCantOpenDatabaseException) {
+        throw IOException(ex)
     } catch (ex: SQLException) {
-        if (ex.cause is SQLiteCantOpenDatabaseException) throw IOException(ex)
-        Log.e(TAG, "getProfile", ex)
-        app.track(ex)
+        printLog(ex)
         null
     }
 
@@ -82,20 +68,20 @@ object ProfileManager {
     @Throws(IOException::class)
     fun isNotEmpty(): Boolean = try {
         PrivateDatabase.profileDao.isNotEmpty()
+    } catch (ex: SQLiteCantOpenDatabaseException) {
+        throw IOException(ex)
     } catch (ex: SQLException) {
-        if (ex.cause is SQLiteCantOpenDatabaseException) throw IOException(ex)
-        Log.e(TAG, "isNotEmpty", ex)
-        app.track(ex)
+        printLog(ex)
         false
     }
 
     @Throws(IOException::class)
     fun getAllProfiles(): List<Profile>? = try {
         PrivateDatabase.profileDao.list()
+    } catch (ex: SQLiteCantOpenDatabaseException) {
+        throw IOException(ex)
     } catch (ex: SQLException) {
-        if (ex.cause is SQLiteCantOpenDatabaseException) throw IOException(ex)
-        Log.e(TAG, "getAllProfiles", ex)
-        app.track(ex)
+        printLog(ex)
         null
     }
 }

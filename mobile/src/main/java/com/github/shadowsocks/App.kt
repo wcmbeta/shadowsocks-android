@@ -35,15 +35,13 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.UserManager
-import android.support.annotation.RequiresApi
-import android.support.v7.app.AppCompatDelegate
 import android.util.Log
-import android.widget.Toast
-import com.evernote.android.job.JobConstants
-import com.evernote.android.job.JobManager
-import com.evernote.android.job.JobManagerCreateException
+import androidx.annotation.RequiresApi
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.content.getSystemService
+import androidx.work.WorkManager
+import com.crashlytics.android.Crashlytics
 import com.github.shadowsocks.acl.Acl
-import com.github.shadowsocks.acl.AclSyncJob
 import com.github.shadowsocks.bg.BaseService
 import com.github.shadowsocks.database.Profile
 import com.github.shadowsocks.database.ProfileManager
@@ -51,13 +49,11 @@ import com.github.shadowsocks.preference.BottomSheetPreferenceDialogFragment
 import com.github.shadowsocks.preference.DataStore
 import com.github.shadowsocks.preference.IconListPreference
 import com.github.shadowsocks.utils.*
-import com.google.android.gms.analytics.GoogleAnalytics
-import com.google.android.gms.analytics.HitBuilders
-import com.google.android.gms.analytics.StandardExceptionParser
-import com.google.android.gms.analytics.Tracker
 import com.google.firebase.FirebaseApp
+import com.google.firebase.analytics.FirebaseAnalytics
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
-import com.takisoft.fix.support.v7.preference.PreferenceFragmentCompat
+import com.takisoft.preferencex.PreferenceFragmentCompat
+import io.fabric.sdk.android.Fabric
 import java.io.File
 import java.io.IOException
 
@@ -68,18 +64,18 @@ class App : Application() {
     }
 
     val handler by lazy { Handler(Looper.getMainLooper()) }
-    val deviceContext: Context by lazy { if (Build.VERSION.SDK_INT < 24) this else DeviceContext(this) }
+    val deviceStorage by lazy { if (Build.VERSION.SDK_INT < 24) this else DeviceStorageApp(this) }
     val remoteConfig: FirebaseRemoteConfig by lazy { FirebaseRemoteConfig.getInstance() }
-    private val tracker: Tracker by lazy { GoogleAnalytics.getInstance(deviceContext).newTracker(R.xml.tracker) }
-    private val exceptionParser by lazy { StandardExceptionParser(this, null) }
+    val analytics: FirebaseAnalytics by lazy { FirebaseAnalytics.getInstance(deviceStorage) }
     val info: PackageInfo by lazy { getPackageInfo(packageName) }
     val directBootSupported by lazy {
-        Build.VERSION.SDK_INT >= 24 && getSystemService(DevicePolicyManager::class.java)
-            .storageEncryptionStatus == DevicePolicyManager.ENCRYPTION_STATUS_ACTIVE_PER_USER
+        Build.VERSION.SDK_INT >= 24 && getSystemService<DevicePolicyManager>()?.storageEncryptionStatus ==
+                DevicePolicyManager.ENCRYPTION_STATUS_ACTIVE_PER_USER
     }
 
-    fun getPackageInfo(packageName: String) =
-            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES)!!
+    fun getPackageInfo(packageName: String) = packageManager.getPackageInfo(packageName,
+            if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES
+            else @Suppress("DEPRECATION") PackageManager.GET_SIGNATURES)!!
 
     fun startService() {
         val intent = Intent(this, BaseService.serviceClass.java)
@@ -97,33 +93,15 @@ class App : Application() {
         return result
     }
 
-    // send event
-    fun track(category: String, action: String) = tracker.send(HitBuilders.EventBuilder()
-            .setCategory(category)
-            .setAction(action)
-            .setLabel(BuildConfig.VERSION_NAME)
-            .build())
-    fun track(t: Throwable) = track(Thread.currentThread(), t)
-    fun track(thread: Thread, t: Throwable) {
-        tracker.send(HitBuilders.ExceptionBuilder()
-                .setDescription("${exceptionParser.getDescription(thread.name, t)} - ${t.message}")
-                .setFatal(false)
-                .build())
-        t.printStackTrace()
-    }
-
     override fun onCreate() {
         super.onCreate()
         app = this
         AppCompatDelegate.setCompatVectorFromResourcesEnabled(true)
-        AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
         PreferenceFragmentCompat.registerPreferenceFragment(IconListPreference::class.java,
                 BottomSheetPreferenceDialogFragment::class.java)
 
         if (Build.VERSION.SDK_INT >= 24) {  // migrate old files
-            deviceContext.moveDatabaseFrom(this, Key.DB_PUBLIC)
-            deviceContext.moveDatabaseFrom(this, JobConstants.DATABASE_NAME)
-            deviceContext.moveSharedPreferencesFrom(this, JobConstants.PREF_FILE_NAME)
+            deviceStorage.moveDatabaseFrom(this, Key.DB_PUBLIC)
             val old = Acl.getFile(Acl.CUSTOM_RULES, this)
             if (old.canRead()) {
                 Acl.getFile(Acl.CUSTOM_RULES).writeText(old.readText())
@@ -131,32 +109,30 @@ class App : Application() {
             }
         }
 
-        FirebaseApp.initializeApp(deviceContext)
+        Fabric.with(deviceStorage, Crashlytics())   // multiple processes needs manual set-up
+        FirebaseApp.initializeApp(deviceStorage)
         remoteConfig.setDefaults(R.xml.default_configs)
         remoteConfig.fetch().addOnCompleteListener {
-            if (it.isSuccessful) remoteConfig.activateFetched() else Log.e(TAG, "Failed to fetch config")
+            if (it.isSuccessful) remoteConfig.activateFetched() else {
+                Log.e(TAG, "Failed to fetch config")
+                Crashlytics.logException(it.exception)
+            }
         }
-        try {
-            JobManager.create(deviceContext).addJobCreator(AclSyncJob)
-        } catch (e: JobManagerCreateException) {
-            Toast.makeText(this, e.message, Toast.LENGTH_SHORT).show()
-            app.track(e)
-        }
+        WorkManager.initialize(deviceStorage, androidx.work.Configuration.Builder().build())
 
         // handle data restored/crash
         if (Build.VERSION.SDK_INT >= 24 && DataStore.directBootAware &&
-                (getSystemService(Context.USER_SERVICE) as UserManager).isUserUnlocked) DirectBoot.flushTrafficStats()
-        TcpFastOpen.enabledAsync(DataStore.publicStore.getBoolean(Key.tfo, TcpFastOpen.sendEnabled))
+                getSystemService<UserManager>()?.isUserUnlocked == true) DirectBoot.flushTrafficStats()
+        if (DataStore.tcpFastOpen) TcpFastOpen.enabledAsync(true)
         if (DataStore.publicStore.getLong(Key.assetUpdateTime, -1) != info.lastUpdateTime) {
             val assetManager = assets
             for (dir in arrayOf("acl", "overture"))
                 try {
-                    for (file in assetManager.list(dir)) assetManager.open("$dir/$file").use { input ->
-                        File(deviceContext.filesDir, file).outputStream().use { output -> input.copyTo(output) }
+                    for (file in assetManager.list(dir)!!) assetManager.open("$dir/$file").use { input ->
+                        File(deviceStorage.filesDir, file).outputStream().use { output -> input.copyTo(output) }
                     }
                 } catch (e: IOException) {
-                    Log.e(TAG, e.message)
-                    app.track(e)
+                    printLog(e)
                 }
             DataStore.publicStore.putLong(Key.assetUpdateTime, info.lastUpdateTime)
         }
@@ -171,7 +147,7 @@ class App : Application() {
 
     private fun updateNotificationChannels() {
         if (Build.VERSION.SDK_INT >= 26) @RequiresApi(26) {
-            val nm = getSystemService(NotificationManager::class.java)
+            val nm = getSystemService<NotificationManager>()!!
             nm.createNotificationChannels(listOf(
                     NotificationChannel("service-vpn", getText(R.string.service_vpn),
                             NotificationManager.IMPORTANCE_LOW),

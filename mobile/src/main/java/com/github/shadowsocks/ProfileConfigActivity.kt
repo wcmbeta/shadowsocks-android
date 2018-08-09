@@ -23,9 +23,9 @@ package com.github.shadowsocks
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
-import android.support.v7.app.AlertDialog
-import android.support.v7.app.AppCompatActivity
-import android.support.v7.widget.Toolbar
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.Toolbar
 import com.github.shadowsocks.plugin.PluginContract
 import com.github.shadowsocks.preference.DataStore
 
@@ -50,8 +50,8 @@ class ProfileConfigActivity : AppCompatActivity() {
     override fun onBackPressed() {
         if (DataStore.dirty) AlertDialog.Builder(this)
                 .setTitle(R.string.unsaved_changes_prompt)
-                .setPositiveButton(R.string.yes, { _, _ -> child.saveAndExit() })
-                .setNegativeButton(R.string.no, { _, _ -> finish() })
+                .setPositiveButton(R.string.yes) { _, _ -> child.saveAndExit() }
+                .setNegativeButton(R.string.no) { _, _ -> finish() }
                 .setNeutralButton(android.R.string.cancel, null)
                 .create()
                 .show() else super.onBackPressed()

@@ -23,8 +23,8 @@ package com.github.shadowsocks.bg
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
+import com.crashlytics.android.Crashlytics
 import com.github.shadowsocks.App.Companion.app
-import com.github.shadowsocks.BuildConfig
 import com.github.shadowsocks.JniHelper
 import com.github.shadowsocks.utils.Commandline
 import com.github.shadowsocks.utils.thread
@@ -35,9 +35,8 @@ import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.atomic.AtomicReference
 
 class GuardedProcessPool {
-    companion object {
+    companion object Dummy : IOException("Oopsie the developer has made a no-no") {
         private const val TAG = "GuardedProcessPool"
-        private val dummy = IOException()
     }
 
     private inner class Guard(private val cmd: List<String>, private val onRestartCallback: (() -> Unit)?) {
@@ -53,7 +52,7 @@ class GuardedProcessPool {
                 }
         private fun pushException(ioException: IOException?) {
             if (pushed) return
-            excQueue.put(ioException ?: dummy)
+            excQueue.put(ioException ?: Dummy)
             pushed = true
         }
 
@@ -62,12 +61,12 @@ class GuardedProcessPool {
             try {
                 var callback: (() -> Unit)? = null
                 while (guardThreads.get() === host) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "start process: " + Commandline.toString(cmd))
+                    Crashlytics.log(Log.DEBUG, TAG, "start process: " + Commandline.toString(cmd))
                     val startTime = SystemClock.elapsedRealtime()
 
                     process = ProcessBuilder(cmd)
                             .redirectErrorStream(true)
-                            .directory(app.deviceContext.filesDir)
+                            .directory(app.deviceStorage.filesDir)
                             .start()
 
                     streamLogger(process.inputStream, Log::i)
@@ -79,11 +78,11 @@ class GuardedProcessPool {
                     process.waitFor()
 
                     if (SystemClock.elapsedRealtime() - startTime < 1000) {
-                        Log.w(TAG, "process exit too fast, stop guard: $cmdName")
+                        Crashlytics.log(Log.WARN, TAG, "process exit too fast, stop guard: $cmdName")
                     }
                 }
             } catch (_: InterruptedException) {
-                if (BuildConfig.DEBUG) Log.d(TAG, "thread interrupt, destroy process: $cmdName")
+                Crashlytics.log(Log.DEBUG, TAG, "thread interrupt, destroy process: $cmdName")
             } catch (e: IOException) {
                 pushException(e)
             } finally {
@@ -115,7 +114,7 @@ class GuardedProcessPool {
             })
         }
         val ioException = guard.excQueue.take()
-        if (ioException !== dummy) throw ioException
+        if (ioException !== Dummy) throw ioException
         return this
     }
 

@@ -21,6 +21,7 @@
 package com.github.shadowsocks.plugin
 
 import android.util.Log
+import com.crashlytics.android.Crashlytics
 import com.github.shadowsocks.utils.Commandline
 import java.util.*
 
@@ -37,13 +38,13 @@ class PluginConfiguration(val pluginsOptions: Map<String, PluginOptions>, val se
                 while (iterator.hasNext()) {
                     val option = iterator.next()
                     when {
-                        option == "--nocomp" -> opt.put("nocomp", null)
-                        option.startsWith("--") -> opt.put(option.substring(2), iterator.next())
-                        else -> throw IllegalArgumentException("Unknown kcptun parameter: " + option)
+                        option == "--nocomp" -> opt["nocomp"] = null
+                        option.startsWith("--") -> opt[option.substring(2)] = iterator.next()
+                        else -> throw IllegalArgumentException("Unknown kcptun parameter: $option")
                     }
                 }
             } catch (exc: Exception) {
-                Log.w("PluginConfiguration", exc.message)
+                Crashlytics.log(Log.WARN, "PluginConfiguration", exc.message)
             }
             opt
         } else PluginOptions(line)

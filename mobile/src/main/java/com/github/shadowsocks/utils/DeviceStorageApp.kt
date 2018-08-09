@@ -18,31 +18,23 @@
  *                                                                             *
  *******************************************************************************/
 
-package com.github.shadowsocks.widget
+package com.github.shadowsocks.utils
 
+import android.annotation.SuppressLint
+import android.annotation.TargetApi
+import android.app.Application
 import android.content.Context
-import android.support.v7.widget.GridLayout
-import android.util.AttributeSet
-import com.github.shadowsocks.R
 
-/**
- * Based on: http://stackoverflow.com/a/6212120/2245107
- */
-class BoundedGridLayout @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0,
-                                                  defStyleRes: Int = 0) : GridLayout(context, attrs, defStyleAttr) {
-    private val boundedWidth: Int
-    private val boundedHeight: Int
-
+@SuppressLint("Registered")
+@TargetApi(24)
+class DeviceStorageApp(context: Context) : Application() {
     init {
-        val arr = context.obtainStyledAttributes(attrs, R.styleable.BoundedGridLayout, defStyleAttr, defStyleRes)
-        boundedWidth = arr.getDimensionPixelSize(R.styleable.BoundedGridLayout_bounded_width, 0)
-        boundedHeight = arr.getDimensionPixelSize(R.styleable.BoundedGridLayout_bounded_height, 0)
-        arr.recycle()
+        attachBaseContext(context.createDeviceProtectedStorageContext())
     }
 
-    override fun onMeasure(widthSpec: Int, heightSpec: Int) = super.onMeasure(
-            if (boundedWidth <= 0 || boundedWidth >= MeasureSpec.getSize(widthSpec)) widthSpec
-            else MeasureSpec.makeMeasureSpec(boundedWidth, MeasureSpec.getMode(widthSpec)),
-            if (boundedHeight <= 0 || boundedHeight >= MeasureSpec.getSize(heightSpec)) heightSpec
-            else MeasureSpec.makeMeasureSpec(boundedHeight, MeasureSpec.getMode(heightSpec)))
+    /**
+     * Thou shalt not get the REAL underlying application context which would no longer be operating under device
+     * protected storage.
+     */
+    override fun getApplicationContext(): Context = this
 }

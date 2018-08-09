@@ -22,7 +22,6 @@ package com.github.shadowsocks.bg
 
 import android.app.Service
 import android.content.Intent
-import android.os.IBinder
 import com.github.shadowsocks.App.Companion.app
 import com.github.shadowsocks.preference.DataStore
 import java.io.File
@@ -36,7 +35,7 @@ class TransproxyService : Service(), LocalDnsService.Interface {
     override fun createNotification(profileName: String): ServiceNotification =
             ServiceNotification(this, profileName, "service-transproxy", true)
 
-    override fun onBind(intent: Intent): IBinder? = super.onBind(intent)
+    override fun onBind(intent: Intent) = super.onBind(intent)
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int =
             super<LocalDnsService.Interface>.onStartCommand(intent, flags, startId)
 
@@ -51,7 +50,7 @@ class TransproxyService : Service(), LocalDnsService.Interface {
     }
 
     private fun startRedsocksDaemon() {
-        File(app.deviceContext.filesDir, "redsocks.conf").writeText("""base {
+        File(app.deviceStorage.filesDir, "redsocks.conf").writeText("""base {
  log_debug = off;
  log_info = off;
  log = stderr;

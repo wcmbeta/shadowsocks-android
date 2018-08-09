@@ -20,8 +20,8 @@
 
 package com.github.shadowsocks.database.migration
 
-import android.arch.persistence.db.SupportSQLiteDatabase
-import android.arch.persistence.room.migration.Migration
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 open class RecreateSchemaMigration(oldVersion: Int, newVersion: Int, private val table: String,
                                    private val schema: String, private val keys: String) :

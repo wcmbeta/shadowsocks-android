@@ -21,15 +21,15 @@
 package com.github.shadowsocks.bg
 
 import android.net.LocalSocket
-import android.util.Log
 import com.github.shadowsocks.App.Companion.app
+import com.github.shadowsocks.utils.printLog
 import java.io.File
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 class TrafficMonitorThread : LocalSocketListener("TrafficMonitorThread") {
-    override val socketFile = File(app.deviceContext.filesDir, "stat_path")
+    override val socketFile = File(app.deviceStorage.filesDir, "stat_path")
 
     override fun accept(socket: LocalSocket) {
         try {
@@ -38,8 +38,7 @@ class TrafficMonitorThread : LocalSocketListener("TrafficMonitorThread") {
             val stat = ByteBuffer.wrap(buffer).order(ByteOrder.LITTLE_ENDIAN)
             TrafficMonitor.update(stat.getLong(0), stat.getLong(8))
         } catch (e: IOException) {
-            Log.e(tag, "Error when recv traffic stat", e)
-            app.track(e)
+            printLog(e)
         }
     }
 }

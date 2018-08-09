@@ -22,9 +22,9 @@ package com.github.shadowsocks.plugin
 
 import android.content.Intent
 import android.os.Bundle
-import android.support.v7.app.AppCompatActivity
-import android.support.v7.app.AppCompatDelegate
 import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 
 /**
  * Activity that's capable of getting EXTRA_OPTIONS input.

@@ -22,21 +22,19 @@ package com.github.shadowsocks
 
 import android.os.Build
 import android.os.Bundle
-import android.support.design.widget.Snackbar
-import android.support.v14.preference.SwitchPreference
-import android.support.v7.preference.Preference
+import androidx.preference.Preference
+import androidx.preference.SwitchPreference
 import com.github.shadowsocks.App.Companion.app
 import com.github.shadowsocks.bg.BaseService
 import com.github.shadowsocks.preference.DataStore
 import com.github.shadowsocks.utils.DirectBoot
 import com.github.shadowsocks.utils.Key
 import com.github.shadowsocks.utils.TcpFastOpen
-import com.takisoft.fix.support.v7.preference.PreferenceFragmentCompatDividers
+import com.takisoft.preferencex.PreferenceFragmentCompat
 
-class GlobalSettingsPreferenceFragment : PreferenceFragmentCompatDividers() {
+class GlobalSettingsPreferenceFragment : PreferenceFragmentCompat() {
     override fun onCreatePreferencesFix(savedInstanceState: Bundle?, rootKey: String?) {
         preferenceManager.preferenceDataStore = DataStore.publicStore
-        DataStore.initGlobal()
         addPreferencesFromResource(R.xml.pref_global)
         val boot = findPreference(Key.isAutoConnect) as SwitchPreference
         boot.setOnPreferenceChangeListener { _, value ->
@@ -52,12 +50,13 @@ class GlobalSettingsPreferenceFragment : PreferenceFragmentCompatDividers() {
         } else canToggleLocked.parent!!.removePreference(canToggleLocked)
 
         val tfo = findPreference(Key.tfo) as SwitchPreference
-        tfo.isChecked = TcpFastOpen.sendEnabled
+        tfo.isChecked = DataStore.tcpFastOpen
         tfo.setOnPreferenceChangeListener { _, value ->
-            val result = TcpFastOpen.enabled(value as Boolean)
-            if (result != null && result != "Success.")
-                Snackbar.make(requireActivity().findViewById(R.id.snackbar), result, Snackbar.LENGTH_LONG).show()
-            value == TcpFastOpen.sendEnabled
+            if (value as Boolean) {
+                val result = TcpFastOpen.enabled(true)
+                if (result != null && result != "Success.") (activity as MainActivity).snackbar(result).show()
+                TcpFastOpen.sendEnabled
+            } else true
         }
         if (!TcpFastOpen.supported) {
             tfo.isEnabled = false
@@ -73,7 +72,7 @@ class GlobalSettingsPreferenceFragment : PreferenceFragmentCompatDividers() {
                 Key.modeProxy -> Pair(false, false)
                 Key.modeVpn -> Pair(true, false)
                 Key.modeTransproxy -> Pair(true, true)
-                else -> throw IllegalArgumentException()
+                else -> throw IllegalArgumentException("newValue: $newValue")
             }
             portLocalDns.isEnabled = enabledLocalDns
             portTransproxy.isEnabled = enabledTransproxy

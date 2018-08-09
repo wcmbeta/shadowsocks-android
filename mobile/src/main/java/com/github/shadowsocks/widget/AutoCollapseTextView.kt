@@ -1,7 +1,7 @@
 /*******************************************************************************
  *                                                                             *
- *  Copyright (C) 2017 by Max Lv <max.c.lv@gmail.com>                          *
- *  Copyright (C) 2017 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
+ *  Copyright (C) 2018 by Max Lv <max.c.lv@gmail.com>                          *
+ *  Copyright (C) 2018 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
  *                                                                             *
  *  This program is free software: you can redistribute it and/or modify       *
  *  it under the terms of the GNU General Public License as published by       *
@@ -18,17 +18,37 @@
  *                                                                             *
  *******************************************************************************/
 
-package com.github.shadowsocks.utils
+package com.github.shadowsocks.widget
 
-import android.annotation.TargetApi
 import android.content.Context
-import android.content.ContextWrapper
+import android.graphics.Rect
+import android.util.AttributeSet
+import android.view.MotionEvent
+import androidx.appcompat.widget.AppCompatTextView
+import androidx.core.view.isGone
+import com.crashlytics.android.Crashlytics
 
-@TargetApi(24)
-class DeviceContext(context: Context) : ContextWrapper(context.createDeviceProtectedStorageContext()) {
-    /**
-     * Thou shalt not get the REAL underlying application context which would no longer be operating under device
-     * protected storage.
-     */
-    override fun getApplicationContext(): Context = this
+class AutoCollapseTextView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null,
+                                                     defStyleAttr: Int = 0) :
+        AppCompatTextView(context, attrs, defStyleAttr) {
+    override fun onTextChanged(text: CharSequence?, start: Int, lengthBefore: Int, lengthAfter: Int) {
+        super.onTextChanged(text, start, lengthBefore, lengthAfter)
+        isGone = text.isNullOrEmpty()
+    }
+
+    // #1874
+    override fun onFocusChanged(focused: Boolean, direction: Int, previouslyFocusedRect: Rect?) = try {
+        super.onFocusChanged(focused, direction, previouslyFocusedRect)
+    } catch (e: IndexOutOfBoundsException) {
+        e.printStackTrace()
+        Crashlytics.logException(e)
+    }
+
+    override fun onTouchEvent(event: MotionEvent?) = try {
+        super.onTouchEvent(event)
+    } catch (e: IndexOutOfBoundsException) {
+        e.printStackTrace()
+        Crashlytics.logException(e)
+        false
+    }
 }
